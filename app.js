@@ -9,7 +9,9 @@ require('./typeorm-db')
 var st = require('st');
 var crypto = require('crypto');
 var express = require('express');
-var http = require('http');
+var https = require('https');
+var fs = require('fs');
+
 var path = require('path');
 var ejsEngine = require('ejs-locals');
 var bodyParser = require('body-parser');
@@ -26,6 +28,15 @@ var cons = require('consolidate');
 const hbs = require('hbs')
 
 var app = express();
+
+// Validate required environment variables at startup
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error('SESSION_SECRET must be set and at least 32 characters long');
+}
+if (!process.env.SECRET_TOKEN) {
+  throw new Error('SECRET_TOKEN environment variable is required');
+}
+
 var routes = require('./routes');
 var routesUsers = require('./routes/users.js')
 
@@ -38,15 +49,31 @@ cons.dust.helpers = dustHelpers;
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 app.use(logger('dev'));
-app.use(methodOverride());
+app.set('trust proxy', 1);
 app.use(session({
-  secret: 'keyboard cat',
-  name: 'connect.sid',
-  cookie: { path: '/' }
+  secret: process.env.SESSION_SECRET,
+  name: '__Host-sid',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    path: '/',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: 3600000
+  }
 }))
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(fileUpload());
+var csurf = require('csurf');
+var csrfProtection = csurf({ cookie: false });
+app.use(csrfProtection);
+app.use(function(req, res, next) {
+  res.locals.csrfToken = req.csrfToken();
+  next();
+});
+
 
 // Routes
 app.use(routes.current_user);
@@ -76,13 +103,28 @@ marked.setOptions({ sanitize: true });
 app.locals.marked = marked;
 
 // development only
+// CSRF error handler
+app.use(function(err, req, res, next) {
+  if (err.code === 'EBADCSRFTOKEN') {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  next(err);
+});
+
+// development only
 if (app.get('env') == 'development') {
   app.use(errorHandler());
 }
 
-var token = 'SECRET_TOKEN_f8ed84e8f41e4146403dd4a6bbcea5e418d23a9';
-console.log('token: ' + token);
 
-http.createServer(app).listen(app.get('port'), function () {
+// Token loaded from environment, never hardcoded or logged
+const token = process.env.SECRET_TOKEN;
+
+var tlsOptions = {
+  key: fs.readFileSync(process.env.TLS_KEY_PATH),
+  cert: fs.readFileSync(process.env.TLS_CERT_PATH)
+};
+https.createServer(tlsOptions, app).listen(app.get('port'), function () {
   console.log('Express server listening on port ' + app.get('port'));
 });
+
