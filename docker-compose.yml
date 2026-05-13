@@ -14,14 +14,37 @@ services:
       - goof-mongo
   goof-mongo:
     container_name: goof-mongo
-    image: mongo:3
+    image: mongo:7
     ports:
       - "27017:27017"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - mongo-data:/data/db
+      - mongo-configdb:/data/configdb
+    tmpfs:
+      - /tmp
+      - /var/run/mongodb
+
   good-mysql:
     container_name: goof-mysql
-    image: mysql:5
+    image: mysql:8
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: acme
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - mysql-data:/var/lib/mysql
+    tmpfs:
+      - /tmp
+      - /var/run/mysqld
     ports:
       - "3306:3306"
+
+volumes:
+  mongo-data:
+  mongo-configdb:
+  mysql-data:
