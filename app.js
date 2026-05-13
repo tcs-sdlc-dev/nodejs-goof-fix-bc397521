@@ -39,14 +39,34 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 app.use(logger('dev'));
 app.use(methodOverride());
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error('SESSION_SECRET environment variable must be set and at least 32 characters long');
+}
 app.use(session({
-  secret: 'keyboard cat',
+  secret: process.env.SESSION_SECRET,
   name: 'connect.sid',
-  cookie: { path: '/' }
+  cookie: {
+    path: '/',
+    domain: process.env.COOKIE_DOMAIN || undefined,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 3600000 // 1 hour in milliseconds
+  },
+  resave: false,
+  saveUninitialized: false,
+  rolling: true
 }))
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(fileUpload());
+
+var csrf = require('csurf');
+var csrfProtection = csrf({ cookie: false });
+app.use(csrfProtection);
+app.use(function(req, res, next) {
+  res.locals.csrfToken = req.csrfToken();
+  next();
+});
 
 // Routes
 app.use(routes.current_user);
@@ -80,9 +100,9 @@ if (app.get('env') == 'development') {
   app.use(errorHandler());
 }
 
-var token = 'SECRET_TOKEN_f8ed84e8f41e4146403dd4a6bbcea5e418d23a9';
-console.log('token: ' + token);
+var token = process.env.API_TOKEN;
 
+app.set('trust proxy', 1);
 http.createServer(app).listen(app.get('port'), function () {
   console.log('Express server listening on port ' + app.get('port'));
 });
